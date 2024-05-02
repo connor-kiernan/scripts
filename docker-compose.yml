@@ -1,0 +1,59 @@
+services:
+  dynamodb-local:
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    image: "amazon/dynamodb-local:latest"
+    environment:
+      TZ: Europe/London
+    container_name: dynamodb-local
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./docker/dynamodb:/home/dynamodblocal/data"
+    working_dir: /home/dynamodblocal
+    healthcheck:
+      test: [ "CMD-SHELL", '[ "$(curl -s -o /dev/null -I -w ''%{http_code}'' http://localhost:8000)" == "400" ]' ]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
+  stub:
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+    container_name: stub
+    build:
+      context: ../LocalStub
+    image: stub:latest
+    environment:
+      AWS_ACCESS_KEY_ID: fakeId
+      AWS_SECRET_ACCESS_KEY: dummy-key
+      AWS_REGION: eu-west-1
+      SPRING_PROFILES_ACTIVE: docker
+      TZ: Europe/London
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: "curl --fail --silent localhost:8001/actuator/health | grep UP || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  HAPI:
+    container_name: HAPI
+    profiles:
+      - api
+    depends_on:
+      stub:
+        condition: service_healthy
+    build:
+      context: ../HopefulAPI/HopefulAPI
+    image: hapi:latest
+    environment:
+      AWS_ACCESS_KEY_ID: fakeId
+      AWS_SECRET_ACCESS_KEY: dummy-key
+      AWS_REGION: eu-west-1
+      SPRING_PROFILES_ACTIVE: docker
+      TZ: Europe/London
+    ports:
+      - "8080:8080"
